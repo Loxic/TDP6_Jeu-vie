@@ -88,14 +88,13 @@ int main(int argc, char* argv[])
     t1 = mytimer();
 
     for (loop = 1; loop <= maxloop; loop++) {
-#pragma omp parallel
+
 
 	cell(   0, 0   ) = cell(BS, BS);
 	cell(   0, BS+1) = cell(BS,  1);
 	cell(BS+1, 0   ) = cell( 1, BS);
 	cell(BS+1, BS+1) = cell( 1,  1);
 
-#pragma omp for schedule(static)
 	for (i = 1; i <= BS; i++) {
 	    cell(   i,    0) = cell( i, BS);
 	    cell(   i, BS+1) = cell( i,  1);
@@ -103,10 +102,9 @@ int main(int argc, char* argv[])
 	    cell(BS+1,    i) = cell( 1,  i);
 	}
 
-
-#pragma omp for schedule(static)
-	for (i = 1; i <= BS; i++) {
-	  for (j = 1; j <= BS; j++) {
+#pragma omp parallel for private(i)
+	for (j = 1; j <= BS; j++) {
+	  for (i = 1; i <= BS; i++) {
 		ngb( i, j ) =
 		    cell( i-1, j-1 ) + cell( i, j-1 ) + cell( i+1, j-1 ) +
 		    cell( i-1, j   ) +                  cell( i+1, j   ) +
@@ -115,7 +113,7 @@ int main(int argc, char* argv[])
 	}
 
 	num_alive = 0;
-#pragma omp for schedule(static)
+
 	for (j = 1; j <= BS; j++) {
 	    for (i = 1; i <= BS; i++) {
 		if ( (ngb( i, j ) < 2) ||
