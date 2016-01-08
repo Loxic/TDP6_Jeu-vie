@@ -1,5 +1,5 @@
 CC=gcc
-Cflags=-std=c99 -Wall
+CFLAGS=-std=c99 -Wall -fopenmp
 LDFLAGS=-fopenmp
 TARGETS=life_seq life_omp
 

@@ -56,6 +56,8 @@ int generate_initial_board(int N, int *board, int ldboard)
 
 int main(int argc, char* argv[])
 {
+
+
     int i, j, loop, num_alive, maxloop;
     int ldboard, ldnbngb;
     double t1, t2;
@@ -103,6 +105,7 @@ int main(int argc, char* argv[])
 	}
 
 #pragma omp parallel for private(i)
+
 	for (j = 1; j <= BS; j++) {
 	  for (i = 1; i <= BS; i++) {
 		ngb( i, j ) =
@@ -111,9 +114,9 @@ int main(int argc, char* argv[])
 		    cell( i-1, j+1 ) + cell( i, j+1 ) + cell( i+1, j+1 );
 	    }
 	}
-
+ 
 	num_alive = 0;
-
+	#pragma omp parallel for private(i) reduction(+:num_alive)
 	for (j = 1; j <= BS; j++) {
 	    for (i = 1; i <= BS; i++) {
 		if ( (ngb( i, j ) < 2) ||
