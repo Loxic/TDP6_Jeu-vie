@@ -2,10 +2,12 @@
 #include <stdlib.h>
 #include <sys/time.h>
 #include <string.h>
-#include <omp.h>
+#include <pthread.h>
 #include <semaphore.h>
 
 #define NBR_THREADS 8
+
+#define MOD(a,b) ((((a)%(b))+(b))%(b))
 
 int BS;
 
@@ -24,7 +26,7 @@ int barrier=0;
 #define cell( _i_, _j_ ) board[ ldboard * (_j_) + (_i_) ]
 #define ngb( _i_, _j_ )  nbngb[ ldnbngb * ((_j_) - 1) + ((_i_) - 1 ) ]
 
-void barrier(){
+void tbarrier(){
   pthread_mutex_lock(&barrier_mut);
   int id = barrier_id;
   barrier++;
@@ -86,19 +88,22 @@ int generate_initial_board(int N, int *board, int ldboard)
 
 void * thread_compute(void *arg){
 
-  int tid = (int)arg;
+  int tid = *(int *)arg;
 
   int subBSi=BS/nb_threads;
-  if(tid==nb_threads-1)
-    subBSi+= BS%nb_threads;
   int subBSj=BS;
 
   int ldboard = BS+2;
   int ldnbngb = BS;
-  int *board = _board + tid*subBSi;
+  int *board = _board + tid*(subBSi);
   int *nbngb = _nbngb + tid*subBSi;
 
-    for (loop = 1; loop <= maxloop; loop++) {
+  int *num_alive = malloc(sizeof(*num_alive));
+
+  if(tid==nb_threads-1)
+    subBSi+= BS%nb_threads;
+
+    for (int loop = 1; loop <= maxloop; loop++) {
       
 	for(int j=1; j<=subBSj; j++){
 	  ngb(1, j) = cell(0, j-1) + cell(1, j-1) + cell(2, j-1) +
@@ -108,11 +113,12 @@ void * thread_compute(void *arg){
 	                   cell(subBSi-1,   j)                     + cell(subBSi+1,   j) +
 	                   cell(subBSi-1, j+1) + cell(subBSi, j+1) + cell(subBSi+1, j+1);
 	}
-	sem_post(nbdone+(tid-1)%nb_threads);
-	sem_post(nbdone+(tid+1)%nb_threads);
 
-	for (j = 1; j <= subBSj; j++) {
-	  for (i = 2; i <= subBSi-1; i++) {
+	sem_post(nbdone+MOD((tid-1),nb_threads));
+	sem_post(nbdone+MOD((tid+1),nb_threads));
+
+	for (int j = 1; j <= subBSj; j++) {
+	  for (int i = 2; i <= subBSi-1; i++) {
 		ngb( i, j ) =
 		    cell( i-1, j-1 ) + cell( i, j-1 ) + cell( i+1, j-1 ) +
 		    cell( i-1, j   ) +                  cell( i+1, j   ) +
@@ -120,23 +126,7 @@ void * thread_compute(void *arg){
 	    }
 	}
 
-	num_alive = 0;
-
-	for (j = 1; j <= subBSj; j++) {
-	    for (i = 2; i <= subBSi-1; i++) {
-		if ( (ngb( i, j ) < 2) ||
-		     (ngb( i, j ) > 3) ) {
-		    cell(i, j) = 0;
-		}
-		else {
-		    if ((ngb( i, j )) == 3)
-			cell(i, j) = 1;
-		}
-		if (cell(i, j) == 1) {
-		    num_alive ++;
-		}
-	    }
-	}
+	*num_alive = 0;
 
 	sem_wait(nbdone+tid);
 	sem_wait(nbdone+tid);
@@ -151,7 +141,7 @@ void * thread_compute(void *arg){
 	    cell(1, j) = 0;
 	  }
 	  if(cell(1,j)==1)
-	    num_alive++;
+	    (*num_alive)++;
 
 	  switch (ngb(subBSi, j)){
 	  case 3:
@@ -162,7 +152,7 @@ void * thread_compute(void *arg){
 	    cell(subBSi, j) = 0;
 	  }
 	  if(cell(subBSi,j)==1)
-	    num_alive++; 
+	    (*num_alive)++; 
 	}
 
 	for(int i=1; i<=subBSi; i++){
@@ -170,7 +160,7 @@ void * thread_compute(void *arg){
 	  cell(i, subBSj+1) = cell(i, 1);
 	}
 
-	barrier();
+	tbarrier();
 
 	if(tid == 0){
 	  cell(   0, 0   ) = cell(BS, BS);
@@ -181,15 +171,19 @@ void * thread_compute(void *arg){
 	    cell(   0, j) = cell(BS, j);
 	    cell(BS+1, j) = cell(1, j);
 	  }
+	  output_board(BS, board, ldboard, loop);
 	}
 	
-	barrier();
+	tbarrier();
     }
+    
+    free((int*)arg);
+    return (void *)num_alive;
 }
 
 int main(int argc, char* argv[])
 {
-    int i, j, loop, num_alive;
+    int num_alive = 0;
     int ldboard, ldnbngb;
     double t1, t2;
     double temps;
@@ -213,14 +207,32 @@ int main(int argc, char* argv[])
 
     _board = malloc( ldboard * ldboard * sizeof(int) );
     _nbngb = malloc( ldnbngb * ldnbngb * sizeof(int) );
-
+    int *board = _board;
     num_alive = generate_initial_board( BS, &(cell(1, 1)), ldboard );
+
+    pthread_t *threads=malloc(nb_threads*sizeof(*threads));
+    nbdone = malloc(nb_threads*sizeof(*nbdone));
+    for(int i=0; i<nb_threads; i++)
+      sem_init(nbdone+i, 0, 0);
+    pthread_cond_init(&barrier_cond, NULL);
+    pthread_mutex_init(&barrier_mut, NULL);
 
     printf("Starting number of living cells = %d\n", num_alive);
     t1 = mytimer();
 
-    nbdone = malloc(nb_threads*sizeof(*nbdone));
+    for(int i=0; i<nb_threads; i++){
+      int *id = malloc(sizeof(*id));
+      *id = i;
+      pthread_create(threads+i, NULL, thread_compute, (void *)id);
+    }
 
+    num_alive = 0;
+    for(int i=0; i<nb_threads; i++){
+      void *result_alive;
+      pthread_join(threads[i], &result_alive);
+      num_alive += *(int*)result_alive;
+      free(result_alive);
+    }
 
     t2 = mytimer();
     temps = t2 - t1;
