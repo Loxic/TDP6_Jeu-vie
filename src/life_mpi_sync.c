@@ -61,9 +61,9 @@ int generate_initial_board(int N, int *board, int ldboard)
 void make_neighbours_table(int * neighbours, MPI_Comm comm_cart) {
   int displ = 1;
   int index = 1;
-  MPI_Cart_shift(grid, index, displ, &neighbours[LEFT], &neighbours[RIGHT]);
+  MPI_Cart_shift(comm_cart, index, displ, &neighbours[LEFT], &neighbours[RIGHT]);
   index = 0;
-  MPI_Cart_shift(grid, index, displ, &neighbours[UP], &neighbours[DOWN]);  
+  MPI_Cart_shift(comm_cart, index, displ, &neighbours[UP], &neighbours[DOWN]);  
 }
 
 void make_communications( MPI_Comm comm_cart, int * neighbours, int block_size, int * board, int ldboard, MPI_Datatype block_line) {
@@ -87,38 +87,38 @@ void make_communications( MPI_Comm comm_cart, int * neighbours, int block_size, 
 
 int main(int argc, char* argv[])
 {
+    MPI_Init(NULL,NULL);
     int i, j, loop, num_alive, maxloop;
-    int lgboard,ldboard, ldnbngb;
+    int ldgboard,ldboard, ldnbngb;
     double t1, t2;
     double temps;
     int *gboard;
     int *board;
     int *nbngb;
 
-    //MPI object/values
     int size;
-    MPI_Comm cart_comm;
-    int dim[2],period[2], reorder;
+
+    int reorder;
     int coord[2], id;
     int procs_per_lines_col;
 
-    MPI_Init(NULL,NULL);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    
+    printf("%d\n",size);
     procs_per_lines_col = sqrt(size);
     if(procs_per_lines_col * procs_per_lines_col != size) {
       fprintf(stderr, "Renseignez un nombre carré de processeurs bitte !\n");
       MPI_Finalize();
       exit(EXIT_FAILURE);
     }
+
+    int dim[2] = {procs_per_lines_col, procs_per_lines_col};
+    int period[2] = {1, 1};
+    reorder=0;
+    MPI_Comm comm_cart;
     
-    dim = {procs_per_lines_col, procs_per_lines_col};
-    period = {1, 1}
-    reorder=1;
-    
-    MPI_Cart_create(MPI_COMM_WORLD, 2, dim, period, reorder, &cart_comm);
-    MPI_Comm_rank(cart_comm, &id);
-    MPI_Cart_coords(cart_comm, id, 2, coord);
+    MPI_Cart_create(MPI_COMM_WORLD, 2, dim, period, reorder, &comm_cart);
+    MPI_Comm_rank(comm_cart, &id);
+    MPI_Cart_coords(comm_cart, id, 2, coord);
 
     if (argc < 3) {
 	printf("Usage: %s nb_iterations size\n", argv[0]);
@@ -143,7 +143,7 @@ int main(int argc, char* argv[])
     board = malloc( ldboard * ldboard * sizeof(int) );
     nbngb = malloc( ldnbngb * ldnbngb * sizeof(int) );
     
-    if(myrank == 0) {
+    if(id == 0) {
       gboard = malloc(ldgboard * ldgboard * sizeof(int));
       num_alive = generate_initial_board( BS, &gboard[1+ldgboard], ldgboard );
       fprintf(stderr,"Starting number of living cells = %d\n", num_alive);
@@ -159,19 +159,19 @@ int main(int argc, char* argv[])
     MPI_Type_create_resized(subblock, 0, sizeof(int), &subblock);
     MPI_Type_commit(&subblock);
     
-    int * counts = (int*) malloc(nb_processes*sizeof(int));
-    int * displs = (int*) malloc(nb_processes*sizeof(int));
+    int * counts = (int*) malloc(size*sizeof(int));
+    int * displs = (int*) malloc(size*sizeof(int));
     // Définition des déplacements pour chaque proc
-    for (int i = 0; i < PROCSPERLINE; ++i)
+    for (int i = 0; i < procs_per_lines_col; ++i)
       {
-	for (int j = 0; j < PROCSPERCOL; ++j)
+	for (int j = 0; j < procs_per_lines_col; ++j)
 	  {
-	    counts[i+j*PROCSPERCOL]= 1;
-	    displs[i+j*PROCSPERCOL]= i*ldgboard*(ldboard-2)+j*(ldboard-2);
+	    counts[i+j*procs_per_lines_col]= 1;
+	    displs[i+j*procs_per_lines_col]= i*ldgboard*(ldboard-2)+j*(ldboard-2);
 	  }
       }
-    MPI_Scatterv(&globboard[1+ldgboard], counts, displs, block, &board[ldboard+1], 1,
-				subblock,0, grid);
+    MPI_Scatterv(&gboard[1+ldgboard], counts, displs, block, &board[ldboard+1], 1,
+				subblock,0, comm_cart);
     
 
     int neighbours[4];
@@ -239,8 +239,8 @@ int main(int argc, char* argv[])
     t2 = mytimer();
 
     temps = t2 - t1;
-    MPI_Allreduce(MPI_IN_PLACE,&temps, 1, MPI_DOUBLE, MPI_MAX, cart_comm);
-    MPI_Allreduce(MPI_IN_PLACE,&temps, 1, MPI_INT, MPI_SUM, cart_comm);
+    MPI_Allreduce(MPI_IN_PLACE,&temps, 1, MPI_DOUBLE, MPI_MAX, comm_cart);
+    MPI_Allreduce(MPI_IN_PLACE,&temps, 1, MPI_INT, MPI_SUM, comm_cart);
     if(id == 0) {
       printf("Final number of living cells = %d\n", num_alive);
       printf("%.2lf\n",(double)temps * 1.e3);
