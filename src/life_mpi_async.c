@@ -10,7 +10,7 @@ int BS;
 #define cell( _i_, _j_ ) board[ ldboard * (_j_) + (_i_) ]
 #define ngb( _i_, _j_ )  nbngb[ ldnbngb * ((_j_) - 1) + ((_i_) - 1 ) ]
 
-enum direction {LEFT = 0, UP = 1, RIGHT = 2, DOWN = 3};
+enum direction {LEFT = 0, UP = 1, RIGHT = 2, DOWN = 3,UPLEFT = 4, UPRIGHT = 5, DOWNLEFT = 6, DOWNRIGHT = 7};
 
 
 double mytimer(void)
@@ -61,27 +61,51 @@ int generate_initial_board(int N, int *board, int ldboard)
 void make_neighbours_table(int * neighbours, MPI_Comm comm_cart) {
   int displ = 1;
   int index = 1;
+  int coords[2];
+  int myrank;
+
+  MPI_Comm_rank(comm_cart, &myrank);
+
   MPI_Cart_shift(comm_cart, index, displ, &neighbours[LEFT], &neighbours[RIGHT]);
   index = 0;
   MPI_Cart_shift(comm_cart, index, displ, &neighbours[UP], &neighbours[DOWN]);  
+  MPI_Cart_coords(comm_cart, myrank, 2, coords);
+  coords[0]--;
+  coords[1]--;
+  MPI_Cart_rank(comm_cart, coords, &neighbours[UPLEFT]);
+  coords[0]+=2;
+  MPI_Cart_rank(comm_cart, coords, &neighbours[UPRIGHT]);
+  coords[1]+=2;
+  MPI_Cart_rank(comm_cart, coords, &neighbours[DOWNRIGHT]);
+  coords[0]-=2;
+  MPI_Cart_rank(comm_cart, coords, &neighbours[DOWNLEFT]);
 }
 
-void make_communications( MPI_Comm comm_cart, int * neighbours, int block_size, int * board, int ldboard, MPI_Datatype block_line) {
-  // status not used
-  MPI_Sendrecv(&cell(1, 1), block_size, MPI_INT, neighbours[LEFT], 0, 
-	       &cell(1, block_size+1), block_size, MPI_INT, neighbours[RIGHT], 0,
-	       comm_cart, MPI_STATUS_IGNORE); 			//GAUCHE
+void make_communications(MPI_Request * req, MPI_Comm comm_cart, int * neighbours, int block_size, int * board, int ldboard, MPI_Datatype block_line) {
+  MPI_Isend(&cell(1, 1),block_size, MPI_INT, neighbours[LEFT], 0, comm_cart, &req[0]);
+  MPI_Irecv(&cell(1, block_size + 1),block_size, MPI_INT, neighbours[RIGHT], 0, comm_cart, &req[0]); //GAUCHE
 
-  MPI_Sendrecv(&cell(1, 0), 1, block_line,neighbours[UP], 0, 
-	       &cell(block_size+1, 0), 1, block_line, neighbours[DOWN], 0,
-	       comm_cart, MPI_STATUS_IGNORE); 		        //HAUT
+  MPI_Isend(&cell(1, 1), 1, block_line, neighbours[UP], 0, comm_cart, &req[1]);
+  MPI_Irecv(&cell(block_size + 1, 1), 1, block_line, neighbours[DOWN], 0, comm_cart, &req[1]); //HAUT
 
-  MPI_Sendrecv(&cell(1, block_size), block_size, MPI_INT, neighbours[RIGHT], 0, 
-	       &cell(1, 0), block_size, MPI_INT, neighbours[LEFT], 0,
-	       comm_cart, MPI_STATUS_IGNORE); 			//DROITE
-  MPI_Sendrecv(&cell(block_size, 0), 1, block_line,neighbours[DOWN], 0, 
-	       &cell(0, 0), 1, block_line, neighbours[UP], 0,
-	       comm_cart, MPI_STATUS_IGNORE); 			//BAS
+  MPI_Isend(&cell(1, block_size),block_size, MPI_INT, neighbours[RIGHT], 0, comm_cart, &req[2]);
+  MPI_Irecv(&cell(1, 0),block_size, MPI_INT, neighbours[LEFT], 0, comm_cart, &req[2]); //DROITE
+
+  MPI_Isend(&cell(block_size, 1), 1, block_line, neighbours[DOWN], 0, comm_cart, &req[3]);
+  MPI_Irecv(&cell(0, 1), 1, block_line, neighbours[UP], 0, comm_cart, &req[3]); //BAS
+
+  MPI_Isend(&cell(1, 1), 1, MPI_INT, neighbours[UPLEFT], 0, comm_cart, &req[4]);
+  MPI_Irecv(&cell(block_size + 1, block_size + 1), 1, MPI_INT, neighbours[DOWNRIGHT], 0, comm_cart, &req[4]);  //HAUT-GAUCHE
+  
+  MPI_Isend(&cell(1, block_size), 1, MPI_INT, neighbours[UPRIGHT], 0, comm_cart, &req[5]);
+  MPI_Irecv(&cell(block_size + 1, 0), 1, MPI_INT, neighbours[DOWNLEFT], 0, comm_cart, &req[5]);  //HAUT-DROITE
+
+  MPI_Isend(&cell(block_size, 1), 1, MPI_INT, neighbours[DOWNLEFT], 0, comm_cart, &req[6]);
+  MPI_Irecv(&cell(0, block_size + 1), 1, MPI_INT, neighbours[UPRIGHT], 0, comm_cart, &req[6]);  //BAS-GAUCHE
+
+  MPI_Isend(&cell(block_size, block_size), 1, MPI_INT, neighbours[DOWNRIGHT], 0, comm_cart, &req[7]);
+  MPI_Irecv(&cell(0, 0), 1, MPI_INT, neighbours[UPLEFT], 0, comm_cart, &req[7]);  //BAS-DROIT
+  
 
 }
 
@@ -170,8 +194,9 @@ int main(int argc, char* argv[])
 				subblock,0, comm_cart);
     
 
-    int neighbours[4];
+    int neighbours[8];
     make_neighbours_table(neighbours, comm_cart);    
+    MPI_Request req[8];
 
     int block_size = ldboard - 2;
     MPI_Datatype block_line;
@@ -181,7 +206,7 @@ int main(int argc, char* argv[])
     t1 = mytimer();
 
     for (loop = 1; loop <= maxloop; loop++) {
-      make_communications(comm_cart,neighbours,block_size,board,ldboard,block_line);
+      make_communications(req, comm_cart, neighbours, block_size, board, ldboard, block_line);
 	  
 	  /*	cell(   0, 0   ) = cell(BS, BS);
 	cell(   0, BS+1) = cell(BS,  1);
@@ -196,14 +221,63 @@ int main(int argc, char* argv[])
 	}
 	  */
 
-	for (j = 1; j <= block_size; j++) {
-	    for (i = 1; i <= block_size; i++) {
+      //Inner cells 
+	for (j = 2; j <= block_size; j++) {
+	    for (i = 2; i <= block_size; i++) {
 		ngb( i, j ) =
 		    cell( i-1, j-1 ) + cell( i, j-1 ) + cell( i+1, j-1 ) +
 		    cell( i-1, j   ) +                  cell( i+1, j   ) +
 		    cell( i-1, j+1 ) + cell( i, j+1 ) + cell( i+1, j+1 );
 	    }
 	}
+
+	//On LEFT
+	MPI_Wait(&req[0], MPI_STATUS_IGNORE);
+	MPI_Wait(&req[4], MPI_STATUS_IGNORE);
+	MPI_Wait(&req[6], MPI_STATUS_IGNORE);
+	//CALCUL LIGNE GAUCHE
+	for(j = 1; j <= block_size; j++) {
+	  ngb( 1, j ) =
+	    cell( 0, j-1 ) + cell( 1, j-1 ) + cell( 1, j-1 ) +
+	    cell( 0, j   ) +                  cell( 1, j   ) +
+	    cell( 0, j+1 ) + cell( 1, j+1 ) + cell( 1, j+1 );
+	}
+	
+	//On TOP
+	MPI_Wait(&req[1], MPI_STATUS_IGNORE);
+	MPI_Wait(&req[5], MPI_STATUS_IGNORE);
+	//CALCUL LIGNE DESSUS
+	for(i = 1; i <= block_size; i++) {
+	  ngb( i, 1 ) =
+	    cell( i - 1, 0) + cell( i, 0 ) + cell( i + 1, 0 ) +
+	    cell( i - 1, 1) +                cell( i + 1, 1 ) +
+	    cell( i - 1, 2) + cell( i, 2 ) + cell( i + 1, 2 );
+	}
+
+
+	//On RIGHT
+	MPI_Wait(&req[2], MPI_STATUS_IGNORE);
+	MPI_Wait(&req[7], MPI_STATUS_IGNORE);
+	//CALCULER A DROITE
+	for(j = 1; j <= block_size; j++) {
+	  ngb( 1, j ) =
+	    cell( block_size - 1, j-1 ) + cell( block_size , j-1 ) + cell( block_size + 1, j-1 ) +
+	    cell( block_size - 1, j   ) +                            cell( block_size + 1, j   ) +
+	    cell( block_size - 1, j+1 ) + cell( block_size, j+1 ) + cell(  block_size + 1, j+1 );
+	}
+	
+
+	
+	//ON BOT
+	MPI_Wait(&req[3], MPI_STATUS_IGNORE);
+	//CALCULER EN BAS
+	for(i = 1; i <= block_size; i++) {
+	  ngb( i, 1 ) =
+	    cell( i - 1, block_size - 1) + cell( i, block_size - 1 ) + cell( i + 1, block_size - 1 ) +
+	    cell( i - 1, block_size ) +                cell( i + 1, block_size ) +
+	    cell( i - 1, block_size + 1 ) + cell( i, block_size + 1 ) + cell( i + 1, block_size + 1 );
+	}
+
 
 	num_alive = 0;
 	for (j = 1; j <= block_size; j++) {
