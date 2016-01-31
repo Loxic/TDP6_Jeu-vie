@@ -238,9 +238,9 @@ int main(int argc, char* argv[])
 	//CALCUL LIGNE GAUCHE
 	for(j = 1; j <= block_size; j++) {
 	  ngb( 1, j ) =
-	    cell( 0, j-1 ) + cell( 1, j-1 ) + cell( 1, j-1 ) +
-	    cell( 0, j   ) +                  cell( 1, j   ) +
-	    cell( 0, j+1 ) + cell( 1, j+1 ) + cell( 1, j+1 );
+	    cell( 0, j-1 ) + cell( 1, j-1 ) + cell( 2, j-1 ) +
+	    cell( 0, j   ) +                  cell( 2, j   ) +
+	    cell( 0, j+1 ) + cell( 1, j+1 ) + cell( 2, j+1 );
 	}
 	
 	//On TOP
@@ -260,7 +260,7 @@ int main(int argc, char* argv[])
 	MPI_Waitall(2, &req[14], MPI_STATUS_IGNORE);
 	//CALCULER A DROITE
 	for(j = 1; j <= block_size; j++) {
-	  ngb( 1, j ) =
+	  ngb( block_size, j ) =
 	    cell( block_size - 1, j-1 ) + cell( block_size , j-1 ) + cell( block_size + 1, j-1 ) +
 	    cell( block_size - 1, j   ) +                            cell( block_size + 1, j   ) +
 	    cell( block_size - 1, j+1 ) + cell( block_size, j+1 ) + cell(  block_size + 1, j+1 );
@@ -272,7 +272,7 @@ int main(int argc, char* argv[])
 	MPI_Waitall(2,&req[6], MPI_STATUS_IGNORE);
 	//CALCULER EN BAS
 	for(i = 1; i <= block_size; i++) {
-	  ngb( i, 1 ) =
+	  ngb( i, block_size ) =
 	    cell( i - 1, block_size - 1) + cell( i, block_size - 1 ) + cell( i + 1, block_size - 1 ) +
 	    cell( i - 1, block_size ) +                cell( i + 1, block_size ) +
 	    cell( i - 1, block_size + 1 ) + cell( i, block_size + 1 ) + cell( i + 1, block_size + 1 );
