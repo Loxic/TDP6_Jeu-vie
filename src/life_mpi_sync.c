@@ -10,8 +10,7 @@ int BS;
 #define cell( _i_, _j_ ) board[ ldboard * (_j_) + (_i_) ]
 #define ngb( _i_, _j_ )  nbngb[ ldnbngb * ((_j_) - 1) + ((_i_) - 1 ) ]
 
-enum direction {LEFT = 0, UP = 1, RIGHT = 2, DOWN = 3};
-
+enum direction {LEFT = 0, UP = 1, RIGHT = 2, DOWN = 3,UPLEFT = 4, UPRIGHT = 5, DOWNLEFT = 6, DOWNRIGHT = 7};
 
 double mytimer(void)
 {
@@ -61,9 +60,24 @@ int generate_initial_board(int N, int *board, int ldboard)
 void make_neighbours_table(int * neighbours, MPI_Comm comm_cart) {
   int displ = 1;
   int index = 1;
+  int coords[2];
+  int myrank;
+
+  MPI_Comm_rank(comm_cart, &myrank);
+
   MPI_Cart_shift(comm_cart, index, displ, &neighbours[LEFT], &neighbours[RIGHT]);
   index = 0;
   MPI_Cart_shift(comm_cart, index, displ, &neighbours[UP], &neighbours[DOWN]);  
+  MPI_Cart_coords(comm_cart, myrank, 2, coords);
+  coords[0]--;
+  coords[1]--;
+  MPI_Cart_rank(comm_cart, coords, &neighbours[UPLEFT]);
+  coords[0]+=2;
+  MPI_Cart_rank(comm_cart, coords, &neighbours[UPRIGHT]);
+  coords[1]+=2;
+  MPI_Cart_rank(comm_cart, coords, &neighbours[DOWNRIGHT]);
+  coords[0]-=2;
+  MPI_Cart_rank(comm_cart, coords, &neighbours[DOWNLEFT]);
 }
 
 void make_communications( MPI_Comm comm_cart, int * neighbours, int block_size, int * board, int ldboard, MPI_Datatype block_line) {
@@ -79,9 +93,26 @@ void make_communications( MPI_Comm comm_cart, int * neighbours, int block_size, 
   MPI_Sendrecv(&cell(1, block_size), block_size, MPI_INT, neighbours[RIGHT], 0, 
 	       &cell(1, 0), block_size, MPI_INT, neighbours[LEFT], 0,
 	       comm_cart, MPI_STATUS_IGNORE); 			//DROITE
+
   MPI_Sendrecv(&cell(block_size, 0), 1, block_line,neighbours[DOWN], 0, 
 	       &cell(0, 0), 1, block_line, neighbours[UP], 0,
 	       comm_cart, MPI_STATUS_IGNORE); 			//BAS
+
+  MPI_Sendrecv(&cell(1, 1), 1, MPI_INT, neighbours[UPLEFT], 0, 
+	       &cell(block_size + 1, block_size + 1), 1, MPI_INT, neighbours[DOWNRIGHT], 0,
+	       comm_cart, MPI_STATUS_IGNORE); 			//HAUT-GAUCHE
+
+  MPI_Sendrecv(&cell(1, block_size), 1, MPI_INT, neighbours[UPRIGHT], 0, 
+	       &cell(block_size + 1, 0), 1, MPI_INT, neighbours[DOWNLEFT], 0,
+	       comm_cart, MPI_STATUS_IGNORE); 			//HAUT-DROIT
+
+  MPI_Sendrecv(&cell(block_size, 1), 1, MPI_INT, neighbours[DOWNLEFT], 0, 
+	       &cell(0 ,block_size + 1), 1, MPI_INT, neighbours[UPRIGHT], 0,
+	       comm_cart, MPI_STATUS_IGNORE); 			//BAS-GAUCHE
+
+  MPI_Sendrecv(&cell(block_size, block_size), 1, MPI_INT, neighbours[DOWNLEFT], 0, 
+	       &cell(0 ,0), 1, MPI_INT, neighbours[UPRIGHT], 0,
+	       comm_cart, MPI_STATUS_IGNORE); 			//BAS-DROIT
 
 }
 
@@ -170,7 +201,7 @@ int main(int argc, char* argv[])
 				subblock,0, comm_cart);
     
 
-    int neighbours[4];
+    int neighbours[8];
     make_neighbours_table(neighbours, comm_cart);    
 
     int block_size = ldboard - 2;
