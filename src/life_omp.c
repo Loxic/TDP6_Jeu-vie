@@ -67,11 +67,13 @@ int main(int argc, char* argv[])
     int *nbngb;
 
     if (argc < 3) {
-	printf("Usage: %s nb_iterations size\n", argv[0]);
+	printf("Usage: %s nb_iterations size (nb_threads)\n", argv[0]);
 	return EXIT_SUCCESS;
     } else {
 	maxloop = atoi(argv[1]);
 	BS = atoi(argv[2]);
+	if(argc == 4)
+	  omp_set_num_threads(atoi(argv[3]));
 	//printf("Running sequential version, grid of size %d, %d iterations\n", BS, maxloop);
     }
     num_alive = 0;
@@ -86,7 +88,7 @@ int main(int argc, char* argv[])
 
     num_alive = generate_initial_board( BS, &(cell(1, 1)), ldboard );
 
-    printf("Starting number of living cells = %d\n", num_alive);
+    //printf("Starting number of living cells = %d\n", num_alive);
     t1 = mytimer();
 
     for (loop = 1; loop <= maxloop; loop++) {
@@ -104,8 +106,7 @@ int main(int argc, char* argv[])
 	    cell(BS+1,    i) = cell( 1,  i);
 	}
 
-#pragma omp parallel for private(i)
-
+	#pragma omp parallel for private(i)
 	for (j = 1; j <= BS; j++) {
 	  for (i = 1; i <= BS; i++) {
 		ngb( i, j ) =
@@ -145,7 +146,7 @@ int main(int argc, char* argv[])
 
     t2 = mytimer();
     temps = t2 - t1;
-    printf("Final number of living cells = %d\n", num_alive);
+    //printf("Final number of living cells = %d\n", num_alive);
     printf("%.2lf\n",(double)temps * 1.e3);
 
     free(board);

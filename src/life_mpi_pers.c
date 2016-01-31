@@ -166,7 +166,7 @@ int main(int argc, char* argv[])
     if(id == 0) {
       gboard = malloc(ldgboard * ldgboard * sizeof(int));
       num_alive = generate_initial_board( BS, &gboard[1+ldgboard], ldgboard );
-      fprintf(stderr,"Starting number of living cells = %d\n", num_alive);
+      //fprintf(stderr,"Starting number of living cells = %d\n", num_alive);
     }
 
     MPI_Datatype block;
@@ -313,7 +313,7 @@ int main(int argc, char* argv[])
     MPI_Allreduce(MPI_IN_PLACE,&temps, 1, MPI_DOUBLE, MPI_MAX, comm_cart);
     MPI_Allreduce(MPI_IN_PLACE,&num_alive, 1, MPI_INT, MPI_SUM, comm_cart);
     if(id == 0) {
-      printf("Final number of living cells = %d\n", num_alive);
+      //printf("Final number of living cells = %d\n", num_alive);
       printf("%.2lf\n",(double)temps * 1.e3);
     }
     free(board);
